@@ -1,16 +1,28 @@
 import { useState } from 'react';
-import { Upload, X, FileText, Loader2 } from 'lucide-react';
+import { Upload, X, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
-import { cn } from '@/lib/utils';
+import { cn } from '../../lib/utils';
 import OpenAI from 'openai';
-import { processDocument } from '@/lib/documentProcessor';
+import { processDocument } from '../../lib/documentProcessor';
+import { getUserFriendlyError } from '../../lib/errors';
 
 interface ProcessedDocument {
   id: string;
   name: string;
   content: string;
   summary?: string;
+  metadata?: {
+    pageCount?: number;
+    fileSize?: number;
+    processingTime?: number;
+  };
+}
+
+interface ErrorState {
+  message: string;
+  type: 'error' | 'warning';
+  timestamp: number;
 }
 
 export function DocumentUpload() {
@@ -18,7 +30,16 @@ export function DocumentUpload() {
   const [files, setFiles] = useState<File[]>([]);
   const [processedDocs, setProcessedDocs] = useState<ProcessedDocument[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errors, setErrors] = useState<ErrorState[]>([]);
+  const [currentFileIndex, setCurrentFileIndex] = useState<number>(0);
+
+  const addError = (message: string, type: 'error' | 'warning' = 'error') => {
+    setErrors(prev => [...prev, { message, type, timestamp: Date.now() }]);
+    // Auto-remove errors after 5 seconds
+    setTimeout(() => {
+      setErrors(prev => prev.filter(e => e.timestamp !== Date.now()));
+    }, 5000);
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -36,6 +57,12 @@ export function DocumentUpload() {
       file.type === 'application/pdf' || 
       file.type === 'text/plain'
     );
+
+    if (droppedFiles.length === 0) {
+      addError('Please upload PDF or text files only');
+      return;
+    }
+
     setFiles(prev => [...prev, ...droppedFiles]);
   };
 
@@ -45,6 +72,12 @@ export function DocumentUpload() {
         file.type === 'application/pdf' || 
         file.type === 'text/plain'
       );
+
+      if (selectedFiles.length === 0) {
+        addError('Please upload PDF or text files only');
+        return;
+      }
+
       setFiles(prev => [...prev, ...selectedFiles]);
     }
   };
@@ -65,77 +98,84 @@ export function DocumentUpload() {
       dangerouslyAllowBrowser: true
     });
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-2024-08-06",
-      messages: [
-        {
-          role: "system",
-          content: "You are a helpful assistant that creates concise summaries of documents."
-        },
-        {
-          role: "user",
-          content: `Please provide a brief summary of the following text:\n\n${content}`
-        }
-      ],
-      temperature: 0.3,
-      max_tokens: 500
-    });
+    try {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-2024-08-06",
+        messages: [
+          {
+            role: "system",
+            content: "You are a helpful assistant that creates concise summaries of documents."
+          },
+          {
+            role: "user",
+            content: `Please provide a brief summary of the following text:\n\n${content}`
+          }
+        ],
+        temperature: 0.3,
+        max_tokens: 500
+      });
 
-    return response.choices[0]?.message?.content || '';
+      return response.choices[0]?.message?.content || '';
+    } catch (error) {
+      console.error('Summary generation error:', error);
+      throw new Error('Failed to generate summary');
+    }
   };
 
   const processFiles = async () => {
     setIsProcessing(true);
-    setError(null);
+    setErrors([]);
+    setCurrentFileIndex(0);
 
     const processedDocuments: ProcessedDocument[] = [];
 
-    try {
-      for (const file of files) {
+    for (let i = 0; i < files.length; i++) {
+      setCurrentFileIndex(i);
+      const file = files[i];
+
+      try {
+        const result = await processDocument(file);
+        
+        let summary = '';
         try {
-          const result = await processDocument(file);
-          
-          // Store processed content
-          sessionStorage.setItem('processedDocument', result.content);
-
-          // Generate summary
-          let summary = '';
-          try {
-            summary = await generateSummary(result.content);
-          } catch (summaryError) {
-            console.warn('Failed to generate summary:', summaryError);
-            // Continue without summary if it fails
-          }
-
-          processedDocuments.push({
-            id: crypto.randomUUID(),
-            name: file.name,
-            content: result.content,
-            summary
-          });
-        } catch (fileError) {
-          console.error(`Error processing file ${file.name}:`, fileError);
-          setError(`Failed to process ${file.name}: ${fileError instanceof Error ? fileError.message : 'Unknown error'}`);
-          // Continue processing other files
+          summary = await generateSummary(result.content);
+        } catch (summaryError) {
+          console.warn('Failed to generate summary:', summaryError);
+          addError(`Warning: Could not generate summary for ${file.name}`, 'warning');
         }
-      }
 
-      if (processedDocuments.length > 0) {
-        setProcessedDocs(processedDocuments);
-        setFiles([]);
-      } else {
-        throw new Error('No documents were successfully processed');
+        processedDocuments.push({
+          id: crypto.randomUUID(),
+          name: file.name,
+          content: result.content,
+          summary,
+          metadata: {
+            pageCount: result.metadata.pageCount,
+            fileSize: result.metadata.fileSize,
+            processingTime: result.metadata.processingTime
+          }
+        });
+      } catch (error) {
+        console.error(`Error processing ${file.name}:`, error);
+        addError(getUserFriendlyError(error as Error));
       }
-    } catch (err) {
-      console.error('Processing error:', err);
-      setError(
-        err instanceof Error 
-          ? err.message 
-          : 'Failed to process documents. Please try again.'
-      );
-    } finally {
-      setIsProcessing(false);
     }
+
+    if (processedDocuments.length > 0) {
+      setProcessedDocs(processedDocuments);
+      setFiles([]);
+    } else if (errors.length === 0) {
+      addError('No documents were successfully processed');
+    }
+
+    setIsProcessing(false);
+    setCurrentFileIndex(-1);
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
   return (
@@ -156,7 +196,7 @@ export function DocumentUpload() {
             {isProcessing ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
+                Processing {currentFileIndex + 1} of {files.length}
               </>
             ) : (
               'Process Files'
@@ -165,9 +205,22 @@ export function DocumentUpload() {
         )}
       </div>
 
-      {error && (
-        <div className="mb-4 p-4 text-sm text-red-800 bg-red-100 rounded-md">
-          {error}
+      {errors.length > 0 && (
+        <div className="space-y-2 mb-4">
+          {errors.map((error, index) => (
+            <div
+              key={error.timestamp}
+              className={cn(
+                'p-4 text-sm rounded-md flex items-start',
+                error.type === 'error' 
+                  ? 'text-red-800 bg-red-100'
+                  : 'text-yellow-800 bg-yellow-100'
+              )}
+            >
+              <AlertCircle className="h-5 w-5 mr-2 flex-shrink-0" />
+              {error.message}
+            </div>
+          ))}
         </div>
       )}
 
@@ -216,6 +269,9 @@ export function DocumentUpload() {
                 <div className="flex items-center">
                   <FileText className="h-4 w-4 text-gray-400 mr-2" />
                   <span className="text-sm text-gray-900">{file.name}</span>
+                  <span className="ml-2 text-xs text-gray-500">
+                    ({formatFileSize(file.size)})
+                  </span>
                 </div>
                 <Button
                   variant="ghost"
@@ -242,7 +298,22 @@ export function DocumentUpload() {
                 key={doc.id}
                 className="rounded-lg border border-gray-200 p-4"
               >
-                <h5 className="font-medium text-gray-900">{doc.name}</h5>
+                <div className="flex justify-between items-start">
+                  <h5 className="font-medium text-gray-900">{doc.name}</h5>
+                  {doc.metadata && (
+                    <div className="text-xs text-gray-500">
+                      {doc.metadata.pageCount && (
+                        <span className="mr-3">{doc.metadata.pageCount} pages</span>
+                      )}
+                      {doc.metadata.fileSize && (
+                        <span className="mr-3">{formatFileSize(doc.metadata.fileSize)}</span>
+                      )}
+                      {doc.metadata.processingTime && (
+                        <span>Processed in {(doc.metadata.processingTime / 1000).toFixed(1)}s</span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {doc.summary && (
                   <div className="mt-2">
                     <h6 className="text-sm font-medium text-gray-700">Summary:</h6>
