@@ -193,6 +193,7 @@ export function DocumentUpload() {
           multiple
           accept=".pdf,.txt"
           id="file-upload"
+          title="Upload files"
         />
         <Button
           variant="outline"
