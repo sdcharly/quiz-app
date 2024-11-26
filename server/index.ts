@@ -1,15 +1,25 @@
 import express from 'express';
 import cors from 'cors';
-import { PrismaClient } from '@prisma/client';
+import mongoose from 'mongoose';
 import { router as authRouter } from './routes/auth';
 import { router as quizRouter } from './routes/quiz';
 import { router as userRouter } from './routes/user';
 
 const app = express();
-const prisma = new PrismaClient();
+const port = process.env.PORT || 5000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
+
+// Connect to MongoDB
+mongoose.connect(process.env.DATABASE_URL || 'mongodb://localhost:27017/quiz_app')
+  .then(() => {
+    console.log('Connected to MongoDB');
+  })
+  .catch((error) => {
+    console.error('MongoDB connection error:', error);
+  });
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -27,10 +37,6 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   res.status(500).json({ error: 'Something went wrong!' });
 });
 
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
-
-export { prisma };

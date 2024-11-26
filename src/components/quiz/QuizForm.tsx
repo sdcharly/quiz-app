@@ -7,6 +7,13 @@ import { Textarea } from '../ui/Textarea';
 import { useQuizStore } from '@/store/quiz';
 import { Timer, ListChecks, FileText, Pause, RefreshCw } from 'lucide-react';
 
+interface Question {
+  text: string;
+  options: string[];
+  correctAnswer: number;
+  explanation?: string;
+}
+
 export function QuizForm() {
   const navigate = useNavigate();
   const addQuiz = useQuizStore((state) => state.addQuiz);
@@ -17,6 +24,13 @@ export function QuizForm() {
   const [allowPause, setAllowPause] = useState(false);
   const [allowRetakes, setAllowRetakes] = useState(false);
   const [maxAttempts, setMaxAttempts] = useState(1);
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [currentQuestion, setCurrentQuestion] = useState<Question>({
+    text: '',
+    options: ['', '', '', ''],
+    correctAnswer: 0,
+    explanation: '',
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validateForm = () => {
@@ -31,8 +45,8 @@ export function QuizForm() {
     if (duration < 1) {
       newErrors.duration = 'Duration must be at least 1 minute';
     }
-    if (questionsCount < 1) {
-      newErrors.questionsCount = 'Must have at least 1 question';
+    if (questions.length === 0) {
+      newErrors.questions = 'At least one question is required';
     }
     if (allowRetakes && maxAttempts < 2) {
       newErrors.maxAttempts = 'Maximum attempts must be at least 2 if retakes are allowed';
@@ -42,28 +56,62 @@ export function QuizForm() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleAddQuestion = () => {
+    if (!currentQuestion.text.trim()) {
+      setErrors(prev => ({ ...prev, questionText: 'Question text is required' }));
+      return;
+    }
+    if (currentQuestion.options.some(opt => !opt.trim())) {
+      setErrors(prev => ({ ...prev, options: 'All options must be filled' }));
+      return;
+    }
+    
+    setQuestions(prev => [...prev, currentQuestion]);
+    setCurrentQuestion({
+      text: '',
+      options: ['', '', '', ''],
+      correctAnswer: 0,
+      explanation: '',
+    });
+    setErrors({});
+  };
+
+  const handleOptionChange = (index: number, value: string) => {
+    setCurrentQuestion(prev => ({
+      ...prev,
+      options: prev.options.map((opt, i) => i === index ? value : opt),
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     if (!validateForm()) return;
 
     const quiz = {
-      id: crypto.randomUUID(),
       title,
       description,
-      duration,
-      questionsCount,
+      duration: Number(duration),
+      questionsCount: questions.length,
       status: 'draft' as const,
-      questions: [],
-      createdAt: new Date().toISOString(),
+      questions,
       settings: {
         allowPause,
         allowRetakes,
-        maxAttempts: allowRetakes ? maxAttempts : 1,
+        maxAttempts: allowRetakes ? Number(maxAttempts) : 1,
       },
     };
-    addQuiz(quiz);
-    navigate('/admin');
+
+    try {
+      await addQuiz(quiz);
+      navigate('/admin');
+    } catch (error) {
+      console.error('Failed to create quiz:', error);
+      setErrors(prev => ({
+        ...prev,
+        submit: error instanceof Error ? error.message : 'Failed to create quiz',
+      }));
+    }
   };
 
   return (
@@ -165,16 +213,76 @@ export function QuizForm() {
           )}
         </div>
 
-        <div className="flex justify-end gap-4">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => navigate('/admin')}
-          >
-            Cancel
-          </Button>
-          <Button type="submit">Create Quiz</Button>
+        <div className="space-y-4">
+          <h3 className="text-lg font-semibold">Add Questions</h3>
+          
+          {questions.map((q, idx) => (
+            <div key={idx} className="p-4 border rounded-lg">
+              <p className="font-medium">Question {idx + 1}: {q.text}</p>
+              <div className="ml-4">
+                {q.options.map((opt, optIdx) => (
+                  <p key={optIdx} className={optIdx === q.correctAnswer ? 'text-green-600' : ''}>
+                    {optIdx + 1}. {opt}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          <div className="space-y-4 border p-4 rounded-lg">
+            <Input
+              label="Question Text"
+              value={currentQuestion.text}
+              onChange={(e) => setCurrentQuestion(prev => ({ ...prev, text: e.target.value }))}
+              error={errors.questionText}
+              placeholder="Enter question text"
+            />
+
+            {currentQuestion.options.map((opt, idx) => (
+              <div key={idx} className="flex gap-2">
+                <Input
+                  label={`Option ${idx + 1}`}
+                  value={opt}
+                  onChange={(e) => handleOptionChange(idx, e.target.value)}
+                  error={errors.options}
+                  placeholder={`Enter option ${idx + 1}`}
+                />
+                <input
+                  type="radio"
+                  name="correctAnswer"
+                  checked={currentQuestion.correctAnswer === idx}
+                  onChange={() => setCurrentQuestion(prev => ({ ...prev, correctAnswer: idx }))}
+                  className="mt-8"
+                />
+              </div>
+            ))}
+
+            <Textarea
+              label="Explanation (Optional)"
+              value={currentQuestion.explanation}
+              onChange={(e) => setCurrentQuestion(prev => ({ ...prev, explanation: e.target.value }))}
+              placeholder="Enter explanation for the correct answer"
+              rows={2}
+            />
+
+            <Button
+              type="button"
+              onClick={handleAddQuestion}
+              variant="secondary"
+              className="w-full"
+            >
+              Add Question
+            </Button>
+          </div>
         </div>
+
+        {errors.submit && (
+          <div className="text-red-500 text-sm">{errors.submit}</div>
+        )}
+
+        <Button type="submit" className="w-full">
+          Create Quiz
+        </Button>
       </form>
     </Card>
   );

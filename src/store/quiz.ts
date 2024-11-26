@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export interface Question {
+interface Question {
   id: string;
   text: string;
   options: string[];
@@ -8,155 +8,224 @@ export interface Question {
   explanation?: string;
 }
 
-export interface QuizAttempt {
+interface QuizAttempt {
   id: string;
   quizId: string;
   studentId: string;
   answers: number[];
   score: number;
-  completedAt: string | null;
   timeSpent: number;
   remainingTime: number | null;
-  status: 'completed' | 'in-progress' | 'paused';
+  status: 'in-progress' | 'paused' | 'completed';
+  startedAt: string;
+  completedAt?: string;
 }
 
-export interface Quiz {
+interface Quiz {
   id: string;
   title: string;
   description: string;
   duration: number;
   questionsCount: number;
   status: 'draft' | 'published';
-  questions: Question[];
-  createdAt: string;
-  attempts: QuizAttempt[];
   settings: {
     allowRetakes: boolean;
     allowPause: boolean;
     maxAttempts: number;
   };
+  questions: Question[];
+  attempts: QuizAttempt[];
 }
 
 interface QuizState {
   quizzes: Quiz[];
   currentQuiz: Quiz | null;
-  setCurrentQuiz: (quiz: Quiz | null) => void;
-  addQuiz: (quiz: Quiz) => void;
-  updateQuiz: (id: string, quiz: Partial<Quiz>) => void;
-  submitQuizAttempt: (attempt: Omit<QuizAttempt, 'score'>) => void;
-  pauseQuizAttempt: (quizId: string, studentId: string, remainingTime: number) => void;
-  resumeQuizAttempt: (quizId: string, studentId: string) => QuizAttempt | null;
+  fetchQuizzes: () => Promise<void>;
+  addQuiz: (quiz: Omit<Quiz, 'id' | 'attempts'>) => Promise<Quiz>;
+  updateQuiz: (id: string, quiz: Partial<Quiz>) => Promise<void>;
+  deleteQuiz: (id: string) => Promise<void>;
+  submitQuizAttempt: (attempt: Omit<QuizAttempt, 'score' | 'startedAt'>) => Promise<void>;
+  pauseQuizAttempt: (quizId: string, studentId: string, remainingTime: number) => Promise<void>;
 }
 
 export const useQuizStore = create<QuizState>((set, get) => ({
   quizzes: [],
   currentQuiz: null,
-  setCurrentQuiz: (quiz) => set({ currentQuiz: quiz }),
-  addQuiz: (quiz) =>
-    set((state) => ({
-      quizzes: [
-        ...state.quizzes,
-        {
-          ...quiz,
-          attempts: [],
-          settings: {
-            allowRetakes: false,
-            allowPause: false,
-            maxAttempts: 1,
-          },
+
+  fetchQuizzes: async () => {
+    try {
+      const response = await fetch('/api/quiz');
+      const quizzes = await response.json();
+      set({ quizzes });
+    } catch (error) {
+      console.error('Failed to fetch quizzes:', error);
+    }
+  },
+
+  addQuiz: async (quiz) => {
+    try {
+      console.log('Sending quiz data:', JSON.stringify(quiz, null, 2));
+      const response = await fetch('/api/quiz', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-      ],
-    })),
-  updateQuiz: (id, updatedQuiz) =>
-    set((state) => ({
-      quizzes: state.quizzes.map((quiz) =>
-        quiz.id === id ? { ...quiz, ...updatedQuiz } : quiz
-      ),
-    })),
-  submitQuizAttempt: (attempt) =>
-    set((state) => {
-      const quiz = state.quizzes.find((q) => q.id === attempt.quizId);
-      if (!quiz) return state;
+        body: JSON.stringify(quiz),
+      });
 
-      const score = quiz.questions.reduce((acc, question, index) => {
-        return acc + (question.correctAnswer === attempt.answers[index] ? 1 : 0);
-      }, 0);
+      const data = await response.json();
+      console.log('Server response:', data);
 
-      const finalAttempt = {
-        ...attempt,
-        score: (score / quiz.questions.length) * 100,
-        status: 'completed' as const,
-        completedAt: new Date().toISOString(),
-      };
+      if (!response.ok) {
+        let errorMessage = 'Failed to create quiz';
+        
+        if (data.error === 'Validation error' && Array.isArray(data.details)) {
+          errorMessage = data.details.map((err: any) => `${err.path}: ${err.message}`).join(', ');
+        } else if (data.message) {
+          errorMessage = data.message;
+        } else if (typeof data.error === 'string') {
+          errorMessage = data.error;
+        }
+        
+        throw new Error(errorMessage);
+      }
 
-      return {
-        quizzes: state.quizzes.map((q) =>
-          q.id === quiz.id
-            ? {
-                ...q,
-                attempts: [...q.attempts.filter(a => 
-                  !(a.studentId === attempt.studentId && a.status === 'in-progress')
-                ), finalAttempt],
-              }
-            : q
+      const newQuiz = data;
+      set((state) => ({
+        quizzes: [...state.quizzes, newQuiz],
+      }));
+      return newQuiz;
+    } catch (error) {
+      console.error('Failed to add quiz:', error);
+      throw error;
+    }
+  },
+
+  updateQuiz: async (id, updatedQuiz) => {
+    try {
+      const response = await fetch(`/api/quiz/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedQuiz),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update quiz');
+      }
+
+      const updated = await response.json();
+      set((state) => ({
+        quizzes: state.quizzes.map((quiz) =>
+          quiz.id === id ? { ...quiz, ...updated } : quiz
         ),
-      };
-    }),
-  pauseQuizAttempt: (quizId, studentId, remainingTime) =>
-    set((state) => {
-      const quiz = state.quizzes.find((q) => q.id === quizId);
-      if (!quiz) return state;
+      }));
+    } catch (error) {
+      console.error('Failed to update quiz:', error);
+      throw error;
+    }
+  },
 
-      const attempt = quiz.attempts.find(
-        (a) => a.studentId === studentId && a.status === 'in-progress'
-      );
+  deleteQuiz: async (id) => {
+    try {
+      const quiz = get().quizzes.find((q) => q.id === id);
+      if (!quiz) {
+        throw new Error('Quiz not found');
+      }
 
-      if (!attempt) return state;
+      if (quiz.status === 'published') {
+        throw new Error('Cannot delete a published quiz');
+      }
 
-      const pausedAttempt = {
-        ...attempt,
-        status: 'paused' as const,
-        remainingTime,
-      };
+      const response = await fetch(`/api/quiz/${id}`, {
+        method: 'DELETE',
+      });
 
-      return {
-        quizzes: state.quizzes.map((q) =>
-          q.id === quizId
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to delete quiz');
+      }
+
+      set((state) => ({
+        quizzes: state.quizzes.filter((quiz) => quiz.id !== id),
+      }));
+    } catch (error) {
+      console.error('Failed to delete quiz:', error);
+      throw error;
+    }
+  },
+
+  submitQuizAttempt: async (attempt) => {
+    try {
+      const response = await fetch(`/api/quiz/${attempt.quizId}/attempt`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...attempt,
+          startedAt: new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to submit quiz attempt');
+      }
+
+      const submittedAttempt = await response.json();
+      set((state) => ({
+        quizzes: state.quizzes.map((quiz) =>
+          quiz.id === attempt.quizId
             ? {
-                ...q,
-                attempts: [
-                  ...q.attempts.filter((a) => a.id !== attempt.id),
-                  pausedAttempt,
-                ],
+                ...quiz,
+                attempts: [...quiz.attempts, submittedAttempt],
               }
-            : q
+            : quiz
         ),
-      };
-    }),
-  resumeQuizAttempt: (quizId, studentId) => {
-    const quiz = get().quizzes.find((q) => q.id === quizId);
-    if (!quiz) return null;
+      }));
+    } catch (error) {
+      console.error('Failed to submit quiz attempt:', error);
+      throw error;
+    }
+  },
 
-    const pausedAttempt = quiz.attempts.find(
-      (a) => a.studentId === studentId && a.status === 'paused'
-    );
+  pauseQuizAttempt: async (quizId, studentId, remainingTime) => {
+    try {
+      const response = await fetch(`/api/quiz/${quizId}/attempt/pause`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          studentId,
+          remainingTime,
+        }),
+      });
 
-    if (!pausedAttempt) return null;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to pause quiz attempt');
+      }
 
-    set((state) => ({
-      quizzes: state.quizzes.map((q) =>
-        q.id === quizId
-          ? {
-              ...q,
-              attempts: [
-                ...q.attempts.filter((a) => a.id !== pausedAttempt.id),
-                { ...pausedAttempt, status: 'in-progress' as const },
-              ],
-            }
-          : q
-      ),
-    }));
-
-    return { ...pausedAttempt, status: 'in-progress' as const };
+      const pausedAttempt = await response.json();
+      set((state) => ({
+        quizzes: state.quizzes.map((quiz) =>
+          quiz.id === quizId
+            ? {
+                ...quiz,
+                attempts: quiz.attempts.map((attempt) =>
+                  attempt.id === pausedAttempt.id ? pausedAttempt : attempt
+                ),
+              }
+            : quiz
+        ),
+      }));
+    } catch (error) {
+      console.error('Failed to pause quiz attempt:', error);
+      throw error;
+    }
   },
 }));
