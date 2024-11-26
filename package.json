@@ -12,7 +12,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.1",
     "@prisma/client": "^5.10.2",
-    "ai-quiz-platform": "file:",
     "clsx": "^2.1.0",
     "cors": "^2.8.5",
     "express": "^4.18.3",
