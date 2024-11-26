@@ -5,7 +5,7 @@ let aiClient: OpenAI | null = null;
 export function initializeAI(): void {
   const apiKey = import.meta.env.VITE_AI_API_KEY;
   
-  if (!apiKey || apiKey === 'your_openai_api_key_here') {
+  if (!apiKey) {
     console.warn('OpenAI API key not configured');
     return;
   }

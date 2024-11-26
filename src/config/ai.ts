@@ -1,9 +1,9 @@
-import { initializeAI } from '@/lib/ai';
+import { initializeAI } from '@/lib/ai/config';
 
 export function setupAI(): void {
   const apiKey = import.meta.env.VITE_AI_API_KEY;
   
-  if (!apiKey || apiKey === 'your-openai-api-key-here') {
+  if (!apiKey) {
     console.info('Running in development mode without AI features');
     return;
   }
