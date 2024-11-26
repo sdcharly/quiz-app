@@ -5,7 +5,7 @@ let aiClient: OpenAI | null = null;
 export function initializeAI(): void {
   const apiKey = import.meta.env.VITE_AI_API_KEY;
   
-  if (!apiKey || apiKey === 'your-openai-api-key-here') {
+  if (!apiKey || apiKey === 'your_openai_api_key_here') {
     console.warn('OpenAI API key not configured');
     return;
   }
@@ -13,7 +13,9 @@ export function initializeAI(): void {
   try {
     aiClient = new OpenAI({ 
       apiKey,
-      dangerouslyAllowBrowser: true
+      dangerouslyAllowBrowser: true,
+      maxRetries: 3,
+      timeout: 30000,
     });
     console.info('OpenAI client initialized successfully');
   } catch (error) {

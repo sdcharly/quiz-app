@@ -23,7 +23,7 @@ export async function generateQuestions(
 
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-2024-08-06",
+      model: import.meta.env.VITE_OPENAI_MODEL || "gpt-3.5-turbo",
       messages: [
         {
           role: "system",
@@ -34,8 +34,8 @@ export async function generateQuestions(
           content: prompt
         }
       ],
-      temperature: 0.7,
-      max_tokens: 4096
+      temperature: parseFloat(import.meta.env.VITE_OPENAI_TEMPERATURE || "0.7"),
+      max_tokens: parseInt(import.meta.env.VITE_OPENAI_MAX_TOKENS || "4096")
     });
 
     const generatedContent = response.choices[0]?.message?.content;

@@ -64,6 +64,7 @@ router.post('/login', async (req, res) => {
     const data = loginSchema.parse(req.body);
     console.log('Login attempt for email:', data.email);
     
+    console.log('Hashing provided password...');
     const hashedPassword = hashPassword(data.password);
     console.log('Provided password hash:', hashedPassword);
 
@@ -77,6 +78,7 @@ router.post('/login', async (req, res) => {
     }
 
     console.log('Stored password hash:', user.password);
+    console.log('Comparing provided password hash with stored password hash...');
     console.log('Passwords match:', user.password === hashedPassword);
 
     if (user.password !== hashedPassword) {

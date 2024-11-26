@@ -3,7 +3,7 @@ import { Upload, X, FileText, Loader2 } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { cn } from '@/lib/utils';
-import OpenAI from 'openai';
+import { getAIClient } from '@/lib/ai/config';
 import { processDocument } from '@/lib/documentProcessor';
 
 interface ProcessedDocument {
@@ -54,19 +54,10 @@ export function DocumentUpload() {
   };
 
   const generateSummary = async (content: string): Promise<string> => {
-    const apiKey = import.meta.env.VITE_AI_API_KEY;
-    
-    if (!apiKey) {
-      throw new Error('OpenAI API key not found');
-    }
-
-    const openai = new OpenAI({
-      apiKey,
-      dangerouslyAllowBrowser: true
-    });
+    const openai = getAIClient();
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-2024-08-06",
+      model: import.meta.env.VITE_OPENAI_MODEL || "gpt-3.5-turbo",
       messages: [
         {
           role: "system",
@@ -77,8 +68,8 @@ export function DocumentUpload() {
           content: `Please provide a brief summary of the following text:\n\n${content}`
         }
       ],
-      temperature: 0.3,
-      max_tokens: 500
+      temperature: parseFloat(import.meta.env.VITE_OPENAI_TEMPERATURE || "0.3"),
+      max_tokens: parseInt(import.meta.env.VITE_OPENAI_MAX_TOKENS || "500")
     });
 
     return response.choices[0]?.message?.content || '';

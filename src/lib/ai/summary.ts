@@ -14,7 +14,7 @@ export async function generateDocumentSummary(content: string): Promise<Document
 
   try {
     const response = await openai.chat.completions.create({
-      model: 'gpt-4o-2024-08-06',
+      model: import.meta.env.VITE_OPENAI_MODEL || "gpt-3.5-turbo",
       messages: [
         {
           role: 'system',
@@ -25,7 +25,8 @@ export async function generateDocumentSummary(content: string): Promise<Document
           content: `${SUMMARY_PROMPT}\n\nDocument content:\n${content.slice(0, 8000)}`
         }
       ],
-      temperature: 0.3
+      temperature: parseFloat(import.meta.env.VITE_OPENAI_TEMPERATURE || "0.3"),
+      max_tokens: parseInt(import.meta.env.VITE_OPENAI_MAX_TOKENS || "2000")
     });
 
     const result = JSON.parse(response.choices[0].message.content || '{}');
